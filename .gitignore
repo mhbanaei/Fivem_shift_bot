@@ -1,0 +1,14 @@
+# Environment & secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Runtime data & logs
+logs/
+data/backups/
+data/shift_data.json

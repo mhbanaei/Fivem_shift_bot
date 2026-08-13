@@ -1,0 +1,100 @@
+@echo off
+chcp 65001 >nul
+title Shift Bot
+cd /d "%~dp0"
+
+echo [1/4] Looking for Python...
+set "PYTHON_EXE="
+
+where python >nul 2>nul
+if not errorlevel 1 (
+    python -c "import sys" >nul 2>nul
+    if not errorlevel 1 set "PYTHON_EXE=python"
+)
+if not defined PYTHON_EXE (
+    where py >nul 2>nul
+    if not errorlevel 1 (
+        py -3 -c "import sys" >nul 2>nul
+        if not errorlevel 1 set "PYTHON_EXE=py -3"
+    )
+)
+if not defined PYTHON_EXE (
+    for %%P in (
+        "%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+        "%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+        "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+        "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+        "%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+        "C:\Python310\python.exe"
+        "C:\Python311\python.exe"
+        "C:\Python312\python.exe"
+    ) do (
+        if not defined PYTHON_EXE if exist "%%~P" set "PYTHON_EXE=%%~P"
+    )
+)
+if not defined PYTHON_EXE (
+    echo.
+    echo [X] Python not found.
+    echo     Install it from https://www.python.org/downloads/
+    echo     and tick "Add Python to PATH" during installation.
+    pause
+    exit /b 1
+)
+echo     Using: %PYTHON_EXE%
+
+echo [2/4] Checking virtual environment...
+set "VENV_OK="
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -c "import sys" >nul 2>nul
+    if not errorlevel 1 (
+        ".venv\Scripts\python.exe" -m pip --version >nul 2>nul
+        if not errorlevel 1 set "VENV_OK=1"
+    )
+)
+if not defined VENV_OK (
+    echo [!] Virtual environment is missing or broken (no working pip) - recreating it...
+    if exist ".venv" rmdir /s /q ".venv"
+    %PYTHON_EXE% -m venv .venv
+    if errorlevel 1 (
+        echo [X] Failed to create virtual environment.
+        pause
+        exit /b 1
+    )
+    ".venv\Scripts\python.exe" -m pip --version >nul 2>nul
+    if errorlevel 1 (
+        echo [!] pip is missing in the new environment - bootstrapping it...
+        ".venv\Scripts\python.exe" -m ensurepip --upgrade >nul 2>nul
+        if errorlevel 1 (
+            echo [!] ensurepip failed - downloading get-pip.py...
+            powershell -NoProfile -Command "Invoke-WebRequest -Uri https://bootstrap.pypa.io/get-pip.py -OutFile get-pip.py" >nul 2>nul
+            if exist get-pip.py (
+                ".venv\Scripts\python.exe" get-pip.py
+                del get-pip.py
+            ) else (
+                echo [X] Could not install pip. Check your internet connection.
+                pause
+                exit /b 1
+            )
+        )
+    )
+)
+echo     Environment is ready.
+
+echo [3/4] Installing requirements...
+".venv\Scripts\python.exe" -m pip install -r requirements.txt
+if errorlevel 1 (
+    echo [!] pip install failed - retrying once...
+    ".venv\Scripts\python.exe" -m pip install -r requirements.txt
+)
+if errorlevel 1 (
+    echo [X] Could not install requirements. Check your internet connection.
+    pause
+    exit /b 1
+)
+
+echo [4/4] Starting bot...
+".venv\Scripts\python.exe" bot.py
+
+echo.
+echo [x] Bot stopped. Press any key to close...
+pause >nul
