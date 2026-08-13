@@ -47,7 +47,7 @@ load_dotenv()
 # EMBEDDED_TOKEN را عوض کنید (یا یک فایل .env بسازید).
 # ======================================================================
 
-EMBEDDED_TOKEN = "DISCORD_TOKEN"
+EMBEDDED_TOKEN = "ADD_DISCORD_TOKEN"
 
 TOKEN = os.getenv("DISCORD_TOKEN") or EMBEDDED_TOKEN
 
@@ -72,7 +72,7 @@ CONFIG = {
     "settings": {
         "disconnect_grace_minutes": 15,
         "timezone": "Asia/Tehran",
-        "players_url": "http://----:30120/players.json",
+        "players_url": "http://-----:30120/players.json",
         "check_interval_seconds": 10,
         # نسخه‌های قدیمیِ سینک سراسری دستورات را موقع بالا آمدن حذف کن.
         # تداخل نسخه سراسری + گیلدی می‌تواند منوی Apps را خالی نشان دهد.
