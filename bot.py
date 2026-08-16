@@ -62,11 +62,12 @@ log = logging.getLogger("shift_bot")
 
 CONFIG = {
     "guild_id": "",
-    "channel_id": "1537257512737439925",
+    "channel_id": "1537151050686140611",
     "roles": {
-        "shift": ["1399406163967086752"],
-        "moderator": ["1032342911058202804","1032342960379006987","1264838860077011064",],
-        "manager": ["1032342911058202804","1032342960379006987","1264838860077011064",],
+        "shift": ["1399406163967086752","1538579361689509969"],
+        "userplus": ["1399406163967086752","1538579361689509969"],
+        "moderator": ["1032342911058202804","1032342960379006987","1264838860077011064","1538579361689509969"],
+        "manager": ["1032342911058202804","1032342960379006987","1264838860077011064","1538579361689509969"],
     },
     "settings": {
         "disconnect_grace_minutes": 15,
@@ -641,11 +642,13 @@ def find_player_by_session_id(players, session_id):
 # ======================================================================
 
 SHIFT_LEVEL = 1
-MODERATOR_LEVEL = 2
-MANAGER_LEVEL = 3
+USERPLUS_LEVEL = 2
+MODERATOR_LEVEL = 3
+MANAGER_LEVEL = 4
 
 _LEVEL_KEYS = {
     SHIFT_LEVEL: "shift",
+    USERPLUS_LEVEL: "userplus",
     MODERATOR_LEVEL: "moderator",
     MANAGER_LEVEL: "manager",
 }
@@ -657,7 +660,7 @@ def get_level(member, config) -> int:
         return 0
     roles = config.get("roles") or {}
     member_role_ids = {str(role.id) for role in member.roles}
-    for level in (MANAGER_LEVEL, MODERATOR_LEVEL, SHIFT_LEVEL):
+    for level in (MANAGER_LEVEL, MODERATOR_LEVEL, USERPLUS_LEVEL, SHIFT_LEVEL):
         allowed = roles.get(_LEVEL_KEYS[level]) or []
         if any(str(role_id) in member_role_ids for role_id in allowed):
             return level
@@ -1226,18 +1229,46 @@ def build_leaderboard_embed(bot, users, page, guild) -> discord.Embed:
     return embed
 
 
+def build_onlist_embed(bot, users, page, guild) -> discord.Embed:
+    """Leaderboard-style embed of users who are online in FiveM with an active shift."""
+    tz = _tz(bot)
+    per_page = PER_PAGE
+    pages = max(1, math.ceil(len(users) / per_page))
+    page = max(0, min(page, pages - 1))
+    start = page * per_page
+    chunk = users[start : start + per_page]
+
+    lines = []
+    for index, (uid, user) in enumerate(chunk, start=start + 1):
+        display = f"<@{uid}>"
+        total = format_duration(int(user.get("total_shift_seconds") or 0))
+        started = parse_iso(user.get("active_shift", {}).get("started_at"))
+        started_str = f" — since {format_time(started, tz)}" if started else ""
+        lines.append(f"#{index}  {display}  **{total}**{started_str}")
+
+    embed = discord.Embed(
+        title="On Shift — Online Players",
+        description="\n".join(lines) if lines else "در حال حاضر هیچ بازیکنی با شیفت فعال آنلاین نیست.",
+        color=discord.Color.green(),
+    )
+    embed.set_footer(text=f"Page {page + 1}/{pages}")
+    return embed
+
+
 class LeaderboardView(discord.ui.View):
-    def __init__(self, bot, users, page=0):
+    def __init__(self, bot, users, page=0, required_level=MODERATOR_LEVEL, embed_builder=None):
         super().__init__(timeout=None)
         self.bot = bot
         self.users = users
         self.page = page
         self.per_page = PER_PAGE
         self.pages = max(1, math.ceil(len(users) / self.per_page))
+        self.required_level = required_level
+        self.embed_builder = embed_builder or build_leaderboard_embed
         self._update_buttons()
 
     def _embed(self, guild):
-        return build_leaderboard_embed(self.bot, self.users, self.page, guild)
+        return self.embed_builder(self.bot, self.users, self.page, guild)
 
     def _update_buttons(self):
         self.prev.disabled = self.page <= 0
@@ -1249,7 +1280,7 @@ class LeaderboardView(discord.ui.View):
                 "این دستور فقط در Channel مخصوص Shift قابل استفاده است.", ephemeral=True
             )
             return False
-        if not has_level(interaction.user, self.bot.config, MODERATOR_LEVEL):
+        if not has_level(interaction.user, self.bot.config, self.required_level):
             await interaction.response.send_message(
                 "شما دسترسی لازم برای استفاده از این دستور را ندارید.", ephemeral=True
             )
@@ -1322,6 +1353,42 @@ class StatisticsCog(commands.Cog):
         await interaction.followup.send(
             embed=embed, view=LeaderboardView(self.bot, users, page=0), ephemeral=True
         )
+
+    @app_commands.command(name="onlist", description="لیست بازیکنانی که آنلاین هستند و شیفت فعال دارند")
+    @app_commands.guild_only()
+    async def onlist(self, interaction: discord.Interaction):
+        if not await self._channel_ok(interaction):
+            return
+        if not has_level(interaction.user, self.bot.config, USERPLUS_LEVEL):
+            await interaction.response.send_message(
+                "شما دسترسی لازم برای استفاده از این دستور را ندارید.", ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        players = await self.bot.fivem.fetch_players()
+        if players is None:
+            await interaction.followup.send(
+                "سرور FiveM در دسترس نیست. لطفاً بعداً دوباره تلاش کنید.", ephemeral=True
+            )
+            return
+        users = []
+        for uid, user in self.bot.db.active_users():
+            identifier = (
+                user.get("fiveM_identifier")
+                or user.get("active_shift", {}).get("fiveM_identifier")
+            )
+            if identifier and find_player_by_key(players, identifier):
+                users.append((uid, user))
+        users.sort(
+            key=lambda item: int(item[1].get("total_shift_seconds") or 0), reverse=True
+        )
+        embed = build_onlist_embed(self.bot, users, 0, interaction.guild)
+        view = LeaderboardView(
+            self.bot, users, page=0,
+            required_level=USERPLUS_LEVEL,
+            embed_builder=build_onlist_embed,
+        )
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 # ======================================================================
