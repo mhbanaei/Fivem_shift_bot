@@ -42,14 +42,13 @@ load_dotenv()
 # ======================================================================
 # توکن ربات
 # ----------------------------------------------------------------------
-# اول از متغیر محیطی DISCORD_TOKEN (یا فایل .env) خوانده می‌شود؛ اگر موجود
-# نبود از مقدار داخل همین فایل استفاده می‌شود. برای تعویض توکن فقط مقدار
-# EMBEDDED_TOKEN را عوض کنید (یا یک فایل .env بسازید).
+# توکن فقط از همین فایل (EMBEDDED_TOKEN) خوانده می‌شود — برای تعویض توکن
+# فقط مقدار زیر را عوض کنید.
 # ======================================================================
 
-EMBEDDED_TOKEN = "ADD_DISCORD_TOKEN"
+EMBEDDED_TOKEN = "ADD_Discord_Token"
 
-TOKEN = os.getenv("DISCORD_TOKEN") or EMBEDDED_TOKEN
+TOKEN = EMBEDDED_TOKEN
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -72,11 +71,8 @@ CONFIG = {
     "settings": {
         "disconnect_grace_minutes": 15,
         "timezone": "Asia/Tehran",
-        "players_url": "http://-----:30120/players.json",
+        "players_url": "http://domainORip:30120/players.json",
         "check_interval_seconds": 10,
-        # نسخه‌های قدیمیِ سینک سراسری دستورات را موقع بالا آمدن حذف کن.
-        # تداخل نسخه سراسری + گیلدی می‌تواند منوی Apps را خالی نشان دهد.
-        "clear_global_commands": True,
     },
 }
 
@@ -712,7 +708,7 @@ class RegistrationModal(discord.ui.Modal, title="ثبت نام در سیستم �
     shift panel. No name has to be typed."""
 
     fivem_id = discord.ui.TextInput(
-        label="ایدی خود رو وارد کنید (مثلاً 12)",
+        label="ایدی خود رو وارد کنید (مثلاً 42)",
         placeholder="ایدی بالای کاراکتر شما",
         max_length=10,
         required=True,
@@ -1545,34 +1541,25 @@ class ShiftBot(commands.Bot):
         await self.add_cog(AdminCog(self))
         command_names = [cmd.name for cmd in self.tree.get_commands()]
         self.logger.info("Registered %d command(s): %s", len(command_names), ", ".join(command_names))
-        settings = self.config.get("settings") or {}
-        if settings.get("clear_global_commands", True):
-            await self._clear_global_commands()
+        await self._sync_global_commands()
         guild_id = str(self.config.get("guild_id") or "").strip()
         if guild_id:
             await self._sync_to_guild(int(guild_id), label="configured guild")
 
-    async def _clear_global_commands(self):
-        """Delete previously registered GLOBAL commands. The bot is guild-
-        focused now (commands are synced to each guild on startup), and stale
-        global copies can make the client's picker / Apps menu show an empty
-        or confused command list."""
+    async def _sync_global_commands(self):
+        """Register the commands GLOBALLY so the bot shows up in Discord's
+        \"Supports Commands\" list / badge and works in every server.
+        (Global propagation can take up to an hour; guild sync below covers
+        the main servers instantly.)"""
         try:
-            existing = await self.tree.fetch_commands()
-        except discord.HTTPException:
-            self.logger.exception("Could not fetch global commands")
-            return
-        if not existing:
-            return
-        names = ", ".join(c.name for c in existing)
-        try:
-            self.tree.clear_commands(guild=None)
             await self.tree.sync()
         except discord.HTTPException:
-            self.logger.exception("Failed to clear global commands")
+            self.logger.exception("[SYNC] Global command sync failed")
             return
-        self.logger.info("Removed %d stale global command(s): %s", len(existing), names)
-        print(f"[SYNC] {len(existing)} دستور سراسری قدیمی حذف شد — دستورات فقط روی سرورها ثبت می‌شوند.")
+        self.logger.info(
+            "[SYNC OK] Global commands registered: %s",
+            ", ".join(sorted(cmd.name for cmd in self.tree.get_commands())),
+        )
 
     async def _sync_to_guild(self, guild_id: int, label: str, retries: int = 3):
         """Sync the command tree to one guild with retry + loud logging."""
